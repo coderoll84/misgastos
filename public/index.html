@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mis Gastos Deducibles</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 2rem auto; padding: 0 1rem; color: #222; }
+    h1 { margin-bottom: 0.2rem; }
+    #info { color: #666; font-size: 0.9rem; margin-bottom: 1.5rem; }
+    form { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 0.75rem; align-items: end; margin-bottom: 1rem; }
+    label { display: flex; flex-direction: column; font-size: 0.9rem; gap: 0.25rem; }
+    input, select, button { padding: 0.5rem; font-size: 1rem; }
+    button { background: #c00; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
+    #mensaje { min-height: 1.2rem; margin-bottom: 1rem; }
+    .error { color: #c00; }
+    .ok { color: #070; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 1.5rem; }
+    th, td { border-bottom: 1px solid #ddd; padding: 0.5rem; text-align: left; }
+    td.monto, th.monto { text-align: right; }
+  </style>
+</head>
+<body>
+  <h1>Mis Gastos Deducibles</h1>
+  <div id="info">Ambiente: <span id="ambiente">…</span> · Pod: <span id="pod">…</span></div>
+
+  <form id="formulario">
+    <label>Fecha
+      <input type="date" name="fecha" required>
+    </label>
+    <label>Concepto
+      <input type="text" name="concepto" required maxlength="100">
+    </label>
+    <label>Categoría
+      <select name="categoria" required>
+        <option>Gastos médicos</option>
+        <option>Colegiaturas</option>
+        <option>Intereses hipotecarios</option>
+        <option>Donativos</option>
+        <option>Otros</option>
+      </select>
+    </label>
+    <label>Monto (MXN)
+      <input type="number" name="monto" min="0.01" step="0.01" required>
+    </label>
+    <button type="submit">Agregar gasto</button>
+  </form>
+  <div id="mensaje"></div>
+
+  <h2>Gastos registrados</h2>
+  <table>
+    <thead>
+      <tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th class="monto">Monto</th></tr>
+    </thead>
+    <tbody id="tabla-gastos"></tbody>
+  </table>
+
+  <h2>Resumen por categoría</h2>
+  <table>
+    <tbody id="tabla-resumen"></tbody>
+  </table>
+
+  <script>
+    const pesos = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
+
+    // Construye una fila con textContent para no interpretar datos del usuario como HTML
+    function fila(valores, columnaMonto) {
+      const tr = document.createElement('tr');
+      valores.forEach((valor, i) => {
+        const td = document.createElement('td');
+        td.textContent = valor;
+        if (i === columnaMonto) td.className = 'monto';
+        tr.appendChild(td);
+      });
+      return tr;
+    }
+
+    async function cargarSalud() {
+      const r = await fetch('/api/salud');
+      const datos = await r.json();
+      document.getElementById('ambiente').textContent = datos.ambiente;
+      document.getElementById('pod').textContent = datos.pod;
+    }
+
+    async function cargarGastos() {
+      const r = await fetch('/api/gastos');
+      const gastos = await r.json();
+      const tbody = document.getElementById('tabla-gastos');
+      tbody.replaceChildren();
+      if (gastos.length === 0) {
+        tbody.appendChild(fila(['Sin gastos registrados', '', '', ''], 3));
+      }
+      for (const g of gastos) {
+        tbody.appendChild(fila([g.fecha, g.concepto, g.categoria, pesos.format(g.monto)], 3));
+      }
+    }
+
+    async function cargarResumen() {
+      const r = await fetch('/api/resumen');
+      const resumen = await r.json();
+      const tbody = document.getElementById('tabla-resumen');
+      tbody.replaceChildren();
+      for (const [categoria, monto] of Object.entries(resumen.porCategoria)) {
+        tbody.appendChild(fila([categoria, pesos.format(monto)], 1));
+      }
+      const total = fila(['Total', pesos.format(resumen.total)], 1);
+      total.style.fontWeight = 'bold';
+      tbody.appendChild(total);
+    }
+
+    function mostrarMensaje(texto, clase) {
+      const div = document.getElementById('mensaje');
+      div.textContent = texto;
+      div.className = clase;
+    }
+
+    document.getElementById('formulario').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const datos = Object.fromEntries(new FormData(form));
+      datos.monto = Number(datos.monto);
+      const r = await fetch('/api/gastos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(datos),
+      });
+      const respuesta = await r.json();
+      if (!r.ok) {
+        mostrarMensaje(respuesta.error, 'error');
+        return;
+      }
+      mostrarMensaje('Gasto agregado', 'ok');
+      form.reset();
+      await Promise.all([cargarGastos(), cargarResumen()]);
+    });
+
+    cargarSalud();
+    cargarGastos();
+    cargarResumen();
+  </script>
+</body>
+</html>
